@@ -17,26 +17,31 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.anandsundaram.myforest.data.SharedPrefsFocusPreferences
+import com.anandsundaram.myforest.ui.FocusViewModel
+import com.anandsundaram.myforest.ui.FocusViewModel.FocusEvent
 import com.anandsundaram.myforest.ui.theme.MyForestTheme
-import java.util.Date
 
-sealed class Screen(val route: String, val resourceId: String) {
+sealed class Screen(val route: String, val label: String) {
     object Focus : Screen("focus", "Focus")
     object History : Screen("history", "History")
 }
 
-val items = listOf(
+private val navigationItems = listOf(
     Screen.Focus,
     Screen.History,
 )
@@ -45,44 +50,32 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val sharedPrefs = getSharedPreferences("MyForestPrefs", Context.MODE_PRIVATE)
+        val preferences = SharedPrefsFocusPreferences(
+            getSharedPreferences("MyForestPrefs", Context.MODE_PRIVATE)
+        )
 
         enableEdgeToEdge()
         setContent {
             MyForestTheme {
                 val navController = rememberNavController()
-                var history by remember { mutableStateOf(listOf<FocusSession>()) }
-
-                val initialDuration = remember {
-                    val stored = sharedPrefs.all["durationMinutes"]
-                    when (stored) {
-                        is Float -> stored
-                        is Int -> stored.toFloat()
-                        is Long -> stored.toFloat()
-                        is Double -> stored.toFloat()
-                        else -> 25f
-                    }
-                }
-                var durationMinutes by rememberSaveable { mutableStateOf(initialDuration) }
-                var isTimerRunning by rememberSaveable { mutableStateOf(false) }
-                var remainingTime by rememberSaveable { mutableStateOf(0L) }
-                var growth by rememberSaveable { mutableStateOf(0f) }
-
+                val viewModel: FocusViewModel = viewModel(
+                    factory = FocusViewModel.Factory(preferences)
+                )
+                val state by viewModel.state.collectAsState()
                 val context = LocalContext.current
 
-                fun handleSessionCompletion(isSuccess: Boolean) {
-                    val actualMinutes = if (isSuccess) {
-                        durationMinutes.toInt()
-                    } else {
-                        ((durationMinutes * 60 * 1000 - remainingTime) / (1000 * 60)).toInt()
-                    }
-                    history = history + FocusSession(Date(), durationMinutes.toInt(), actualMinutes, isSuccess)
-                    isTimerRunning = false
-                    growth = 0f
-
-                    with(sharedPrefs.edit()) {
-                        putBoolean("isTimerRunning", false)
-                        apply()
+                LaunchedEffect(Unit) {
+                    viewModel.events.collect { event ->
+                        when (event) {
+                            is FocusEvent.StartService -> {
+                                val intent = Intent(context, FocusService::class.java)
+                                    .putExtra(FocusService.EXTRA_DURATION_MS, event.durationMs)
+                                ContextCompat.startForegroundService(context, intent)
+                            }
+                            FocusEvent.StopService -> {
+                                context.stopService(Intent(context, FocusService::class.java))
+                            }
+                        }
                     }
                 }
 
@@ -91,14 +84,11 @@ class MainActivity : ComponentActivity() {
                         override fun onReceive(context: Context, intent: Intent) {
                             when (intent.action) {
                                 FocusService.ACTION_TIMER_TICK -> {
-                                    remainingTime = intent.getLongExtra("remainingTime", 0L)
-                                    val totalDuration = durationMinutes.toLong() * 60 * 1000
-                                    if (totalDuration > 0) {
-                                        growth = 1f - (remainingTime.toFloat() / totalDuration)
-                                    }
+                                    val remaining = intent.getLongExtra(FocusService.EXTRA_REMAINING_MS, 0L)
+                                    viewModel.onTimerTick(remaining)
                                 }
                                 FocusService.ACTION_TIMER_FINISH -> {
-                                    handleSessionCompletion(true)
+                                    viewModel.onTimerFinished()
                                 }
                             }
                         }
@@ -109,19 +99,14 @@ class MainActivity : ComponentActivity() {
                         addAction(FocusService.ACTION_TIMER_FINISH)
                     }
 
-                    ContextCompat.registerReceiver(context, timerReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+                    ContextCompat.registerReceiver(
+                        context,
+                        timerReceiver,
+                        filter,
+                        ContextCompat.RECEIVER_NOT_EXPORTED
+                    )
 
-                    onDispose {
-                        context.unregisterReceiver(timerReceiver)
-                    }
-                }
-                fun startFocusSession() {
-                    isTimerRunning = true
-                    remainingTime = durationMinutes.toLong() * 60 * 1000
-
-                    val intent = Intent(this, FocusService::class.java)
-                    intent.putExtra("duration", remainingTime)
-                    startService(intent)
+                    onDispose { context.unregisterReceiver(timerReceiver) }
                 }
 
                 Scaffold(
@@ -129,7 +114,7 @@ class MainActivity : ComponentActivity() {
                         NavigationBar {
                             val navBackStackEntry by navController.currentBackStackEntryAsState()
                             val currentDestination = navBackStackEntry?.destination
-                            items.forEach { screen ->
+                            navigationItems.forEach { screen ->
                                 NavigationBarItem(
                                     icon = {
                                         when (screen) {
@@ -137,7 +122,7 @@ class MainActivity : ComponentActivity() {
                                             Screen.History -> Icon(Icons.Filled.DateRange, contentDescription = null)
                                         }
                                     },
-                                    label = { Text(screen.resourceId) },
+                                    label = { Text(screen.label) },
                                     selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                                     onClick = {
                                         navController.navigate(screen.route) {
@@ -160,25 +145,23 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Screen.Focus.route) {
                             FocusScreen(
-                                durationMinutes = durationMinutes,
-                                isTimerRunning = isTimerRunning,
-                                remainingTime = remainingTime,
-                                growth = growth,
-                                onDurationChange = {
-                                    durationMinutes = it
-                                    sharedPrefs.edit().putFloat("durationMinutes", it).apply()
-                                },
-                                onTimerStateChange = { newIsTimerRunning ->
-                                    if (newIsTimerRunning) {
-                                        startFocusSession()
+                                durationMinutes = state.durationMinutes,
+                                isTimerRunning = state.isTimerRunning,
+                                remainingTimeMs = state.remainingTimeMs,
+                                growth = state.growth,
+                                onDurationChange = viewModel::onDurationChange,
+                                onTimerStateChange = { shouldStart ->
+                                    if (shouldStart) {
+                                        viewModel.onPlantClicked()
                                     } else {
-                                        stopService(Intent(this@MainActivity, FocusService::class.java))
-                                        handleSessionCompletion(false)
+                                        viewModel.onStopRequested()
                                     }
                                 },
                             )
                         }
-                        composable(Screen.History.route) { HistoryScreen(history) }
+                        composable(Screen.History.route) {
+                            HistoryScreen(history = state.history)
+                        }
                     }
                 }
             }

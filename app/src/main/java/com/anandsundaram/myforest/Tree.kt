@@ -9,18 +9,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun Tree(growth: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(200.dp)) {
+fun Tree(growth: Float, modifier: Modifier = Modifier, size: Dp = 180.dp) {
+    Canvas(modifier = modifier.size(size)) {
         drawPalmTree(growth)
     }
 }
 
 @Composable
-fun WitheredTree(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(200.dp)) {
+fun WitheredTree(modifier: Modifier = Modifier, size: Dp = 180.dp) {
+    Canvas(modifier = modifier.size(size)) {
         drawWitheredPalmTree()
     }
 }

@@ -26,10 +26,12 @@ class FocusService : Service() {
         const val CHANNEL_ID = "FocusServiceChannel"
         const val ACTION_TIMER_TICK = "com.anandsundaram.myforest.TIMER_TICK"
         const val ACTION_TIMER_FINISH = "com.anandsundaram.myforest.TIMER_FINISH"
+        const val EXTRA_DURATION_MS = "extra_duration_ms"
+        const val EXTRA_REMAINING_MS = "extra_remaining_ms"
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val duration = intent?.getLongExtra("duration", 0) ?: 0
+        val duration = intent?.getLongExtra(EXTRA_DURATION_MS, 0) ?: 0
         if (duration <= 0L) {
             sendTimerFinish()
             stopSelf()
@@ -133,7 +135,7 @@ class FocusService : Service() {
 
     private fun sendTimerTick(remainingTime: Long) {
         val intent = Intent(ACTION_TIMER_TICK).setPackage(packageName)
-        intent.putExtra("remainingTime", remainingTime)
+        intent.putExtra(EXTRA_REMAINING_MS, remainingTime)
         sendBroadcast(intent)
     }
 
