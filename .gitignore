@@ -1,15 +1,35 @@
+# Android/Gradle
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+.gradle/
+.kotlin/
 local.properties
+**/build/
+build/
+
+# Android Studio / IntelliJ
+.idea/
+!.idea/codeStyles/
+!.idea/codeStyles/**
+!.idea/runConfigurations/
+!.idea/runConfigurations/**
+
+# Generated outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+captures/
+externalNativeBuild/
+.cxx/
+
+# Logs and profiles
+*.log
+*.hprof
+
+# Signing keys
+*.keystore
+*.jks
+
+# OS
+.DS_Store

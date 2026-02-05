@@ -3,7 +3,7 @@ package com.anandsundaram.myforest.ui
 import com.anandsundaram.myforest.FocusSession
 
 data class FocusUiState(
-    val durationMinutes: Float = 25f,
+    val durationMinutes: Float = 50f,
     val isTimerRunning: Boolean = false,
     val remainingTimeMs: Long = 0L,
     val growth: Float = 0f,
