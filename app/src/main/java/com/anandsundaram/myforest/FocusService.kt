@@ -8,17 +8,19 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.CountDownTimer
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import java.util.Timer
+import java.util.TimerTask
 
 class FocusService : Service() {
 
-    private var monitoringTimer: java.util.Timer? = null
+    private var monitoringTimer: Timer? = null
+    private var countdownTimer: Timer? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var countDownTimer: CountDownTimer? = null
+    private var endTime: Long = 0
 
     companion object {
         const val CHANNEL_ID = "FocusServiceChannel"
@@ -26,40 +28,50 @@ class FocusService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val duration = intent?.getLongExtra("duration", 0) ?: 0
+        endTime = System.currentTimeMillis() + duration
 
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Focus Mode")
             .setContentText("Remaining: ${duration / 1000 / 60} minutes")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setOnlyAlertOnce(true)
             .build()
 
         startForeground(1, notification)
 
         startMonitoring()
-
-        countDownTimer = object : CountDownTimer(duration, 1000) {
-            override fun onTick(millisUntilFinished: Long) {
-                updateNotification("Remaining: ${millisUntilFinished / 1000 / 60} minutes")
-            }
-
-            override fun onFinish() {
-                stopSelf()
-            }
-        }.start()
+        startCountdown()
 
         return START_STICKY
     }
 
+    private fun startCountdown() {
+        countdownTimer = Timer()
+        countdownTimer?.schedule(object : TimerTask() {
+            override fun run() {
+                val remainingTime = endTime - System.currentTimeMillis()
+                if (remainingTime > 0) {
+                    handler.post {
+                        val remainingMinutes = (remainingTime / 1000 / 60)
+                        updateNotification("Remaining: $remainingMinutes minutes")
+                    }
+                } else {
+                    stopSelf()
+                }
+            }
+        }, 0, 1000)
+    }
+
     override fun onDestroy() {
         stopMonitoring()
-        countDownTimer?.cancel()
+        countdownTimer?.cancel()
         super.onDestroy()
     }
 
     private fun startMonitoring() {
-        monitoringTimer = java.util.Timer()
-        monitoringTimer?.schedule(object : java.util.TimerTask() {
+        monitoringTimer = Timer()
+        monitoringTimer?.schedule(object : TimerTask() {
             override fun run() {
                 handler.post { bringAppToFront() }
             }
@@ -107,6 +119,7 @@ class FocusService : Service() {
             .setContentTitle("Focus Mode")
             .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setOnlyAlertOnce(true)
             .build()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(1, notification)

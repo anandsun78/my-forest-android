@@ -1,6 +1,7 @@
 package com.anandsundaram.myforest
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,9 +24,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.anandsundaram.myforest.ui.theme.MyForestTheme
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.Date
 
 sealed class Screen(val route: String, val resourceId: String) {
@@ -42,20 +40,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Handle case where app was force-closed during a session
         val sharedPrefs = getSharedPreferences("MyForestPrefs", Context.MODE_PRIVATE)
-        if (sharedPrefs.getBoolean("isTimerRunning", false)) {
-            val duration = sharedPrefs.getInt("durationMinutes", 0)
-            val remaining = sharedPrefs.getLong("remainingTime", 0)
-            val actualDuration = ((duration * 60 * 1000 - remaining) / (1000 * 60)).toInt()
-            val session = FocusSession(Date(), duration, actualDuration, false)
-            // This is a simplified way to handle history; a better approach would be to use a database
-            val history = mutableListOf(session) // Simplified for this example
-            with(sharedPrefs.edit()) {
-                putBoolean("isTimerRunning", false)
-                apply()
-            }
-        }
 
         enableEdgeToEdge()
         setContent {
@@ -67,8 +52,6 @@ class MainActivity : ComponentActivity() {
                 var isTimerRunning by remember { mutableStateOf(false) }
                 var remainingTime by remember { mutableStateOf(0L) }
                 var growth by remember { mutableStateOf(0f) }
-                val coroutineScope = rememberCoroutineScope()
-                var timerJob by remember { mutableStateOf<Job?>(null) }
 
                 fun handleSessionCompletion(isSuccess: Boolean) {
                     val actualMinutes = if (isSuccess) {
@@ -79,7 +62,6 @@ class MainActivity : ComponentActivity() {
                     history = history + FocusSession(Date(), durationMinutes.toInt(), actualMinutes, isSuccess)
                     isTimerRunning = false
                     growth = 0f
-                    timerJob?.cancel()
 
                     with(sharedPrefs.edit()) {
                         putBoolean("isTimerRunning", false)
@@ -87,15 +69,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                DisposableEffect(isTimerRunning, durationMinutes, remainingTime) {
+                DisposableEffect(Unit) {
                     onDispose {
                         if (isTimerRunning) {
-                            with(sharedPrefs.edit()) {
-                                putBoolean("isTimerRunning", true)
-                                putInt("durationMinutes", durationMinutes.toInt())
-                                putLong("remainingTime", remainingTime)
-                                apply()
-                            }
+                            handleSessionCompletion(false)
                         }
                     }
                 }
@@ -144,17 +121,11 @@ class MainActivity : ComponentActivity() {
                                 onTimerStateChange = { newIsTimerRunning ->
                                     isTimerRunning = newIsTimerRunning
                                     if (newIsTimerRunning) {
-                                        timerJob = coroutineScope.launch {
-                                            val totalTime = durationMinutes.toLong() * 60 * 1000
-                                            remainingTime = totalTime
-                                            while (remainingTime > 0) {
-                                                delay(1000)
-                                                remainingTime -= 1000
-                                                growth = 1 - (remainingTime.toFloat() / totalTime)
-                                            }
-                                            handleSessionCompletion(true)
-                                        }
+                                        val intent = Intent(this@MainActivity, FocusService::class.java)
+                                        intent.putExtra("duration", durationMinutes.toLong() * 60 * 1000)
+                                        startService(intent)
                                     } else {
+                                        stopService(Intent(this@MainActivity, FocusService::class.java))
                                         handleSessionCompletion(false)
                                     }
                                 },
