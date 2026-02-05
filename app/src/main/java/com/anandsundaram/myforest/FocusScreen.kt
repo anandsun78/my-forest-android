@@ -47,7 +47,7 @@ fun FocusScreen(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            // Try starting the service again
+            onTimerStateChange(true)
         } else {
             // Inform the user
         }
@@ -122,8 +122,8 @@ fun FocusScreen(
             Slider(
                 value = durationMinutes,
                 onValueChange = onDurationChange,
-                valueRange = 25f..120f,
-                steps = (120 - 25) / 5 - 1
+                valueRange = 5f..120f,
+                steps = (120 - 5) / 5 - 1
             )
         }
         Spacer(modifier = Modifier.height(32.dp))
@@ -133,9 +133,6 @@ fun FocusScreen(
                 val hasNotificationPerm = hasNotificationPermission()
 
                 if (hasUsagePerm && hasNotificationPerm && isBatteryOptimizationIgnored()) {
-                    val intent = Intent(context, FocusService::class.java)
-                    intent.putExtra("duration", durationMinutes.toLong() * 60 * 1000)
-                    context.startService(intent)
                     onTimerStateChange(true)
                 } else {
                     if (!hasUsagePerm) {

@@ -1,7 +1,9 @@
 package com.anandsundaram.myforest
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,7 +18,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -48,10 +53,22 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 var history by remember { mutableStateOf(listOf<FocusSession>()) }
 
-                var durationMinutes by remember { mutableStateOf(25f) }
-                var isTimerRunning by remember { mutableStateOf(false) }
-                var remainingTime by remember { mutableStateOf(0L) }
-                var growth by remember { mutableStateOf(0f) }
+                val initialDuration = remember {
+                    val stored = sharedPrefs.all["durationMinutes"]
+                    when (stored) {
+                        is Float -> stored
+                        is Int -> stored.toFloat()
+                        is Long -> stored.toFloat()
+                        is Double -> stored.toFloat()
+                        else -> 25f
+                    }
+                }
+                var durationMinutes by rememberSaveable { mutableStateOf(initialDuration) }
+                var isTimerRunning by rememberSaveable { mutableStateOf(false) }
+                var remainingTime by rememberSaveable { mutableStateOf(0L) }
+                var growth by rememberSaveable { mutableStateOf(0f) }
+
+                val context = LocalContext.current
 
                 fun handleSessionCompletion(isSuccess: Boolean) {
                     val actualMinutes = if (isSuccess) {
@@ -69,12 +86,42 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                DisposableEffect(Unit) {
-                    onDispose {
-                        if (isTimerRunning) {
-                            handleSessionCompletion(false)
+                DisposableEffect(context) {
+                    val timerReceiver = object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent) {
+                            when (intent.action) {
+                                FocusService.ACTION_TIMER_TICK -> {
+                                    remainingTime = intent.getLongExtra("remainingTime", 0L)
+                                    val totalDuration = durationMinutes.toLong() * 60 * 1000
+                                    if (totalDuration > 0) {
+                                        growth = 1f - (remainingTime.toFloat() / totalDuration)
+                                    }
+                                }
+                                FocusService.ACTION_TIMER_FINISH -> {
+                                    handleSessionCompletion(true)
+                                }
+                            }
                         }
                     }
+
+                    val filter = IntentFilter().apply {
+                        addAction(FocusService.ACTION_TIMER_TICK)
+                        addAction(FocusService.ACTION_TIMER_FINISH)
+                    }
+
+                    ContextCompat.registerReceiver(context, timerReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+
+                    onDispose {
+                        context.unregisterReceiver(timerReceiver)
+                    }
+                }
+                fun startFocusSession() {
+                    isTimerRunning = true
+                    remainingTime = durationMinutes.toLong() * 60 * 1000
+
+                    val intent = Intent(this, FocusService::class.java)
+                    intent.putExtra("duration", remainingTime)
+                    startService(intent)
                 }
 
                 Scaffold(
@@ -117,13 +164,13 @@ class MainActivity : ComponentActivity() {
                                 isTimerRunning = isTimerRunning,
                                 remainingTime = remainingTime,
                                 growth = growth,
-                                onDurationChange = { durationMinutes = it },
+                                onDurationChange = {
+                                    durationMinutes = it
+                                    sharedPrefs.edit().putFloat("durationMinutes", it).apply()
+                                },
                                 onTimerStateChange = { newIsTimerRunning ->
-                                    isTimerRunning = newIsTimerRunning
                                     if (newIsTimerRunning) {
-                                        val intent = Intent(this@MainActivity, FocusService::class.java)
-                                        intent.putExtra("duration", durationMinutes.toLong() * 60 * 1000)
-                                        startService(intent)
+                                        startFocusSession()
                                     } else {
                                         stopService(Intent(this@MainActivity, FocusService::class.java))
                                         handleSessionCompletion(false)
