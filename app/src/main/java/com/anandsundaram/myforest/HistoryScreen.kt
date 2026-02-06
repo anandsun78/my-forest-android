@@ -1,5 +1,6 @@
 package com.anandsundaram.myforest
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,15 +22,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import java.time.Instant
-import java.time.ZoneId
+import com.anandsundaram.myforest.ui.DailyFocusStat
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun HistoryScreen(history: List<FocusSession>) {
+fun HistoryScreen(
+    dailyStats: List<DailyFocusStat>,
+    totalMinutes: Int,
+    focusedDays: Int
+) {
     val colorScheme = MaterialTheme.colorScheme
     val backgroundBrush = remember(colorScheme) {
         Brush.verticalGradient(
@@ -53,14 +59,35 @@ fun HistoryScreen(history: List<FocusSession>) {
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = "Your focus sessions",
+                text = "Daily focus totals",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (history.isEmpty()) {
+            MetricsRow(totalMinutes = totalMinutes, focusedDays = focusedDays)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Last 7 days",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    DailyBarChart(dailyStats = dailyStats.takeLast(7))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (dailyStats.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -79,8 +106,8 @@ fun HistoryScreen(history: List<FocusSession>) {
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(history.reversed()) { session ->
-                        HistoryCard(session)
+                    items(dailyStats.reversed()) { stat ->
+                        DailyStatCard(stat)
                     }
                 }
             }
@@ -89,15 +116,86 @@ fun HistoryScreen(history: List<FocusSession>) {
 }
 
 @Composable
-private fun HistoryCard(session: FocusSession) {
-    val formatter = remember {
-        DateTimeFormatter.ofPattern("MMM d, yyyy • h:mm a")
+private fun MetricsRow(totalMinutes: Int, focusedDays: Int) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        MetricCard(title = "Total Minutes", value = totalMinutes.toString(), modifier = Modifier.weight(1f))
+        MetricCard(title = "Focused Days", value = focusedDays.toString(), modifier = Modifier.weight(1f))
     }
-    val dateText = formatter.format(
-        Instant.ofEpochMilli(session.date.time)
-            .atZone(ZoneId.systemDefault())
-            .toLocalDateTime()
-    )
+}
+
+@Composable
+private fun MetricCard(title: String, value: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyBarChart(dailyStats: List<DailyFocusStat>) {
+    val maxMinutes = dailyStats.maxOfOrNull { it.totalMinutes }?.coerceAtLeast(1) ?: 1
+    val barColor = MaterialTheme.colorScheme.primary
+    val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    val formatter = remember { DateTimeFormatter.ofPattern("EEE") }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+            if (dailyStats.isEmpty()) return@Canvas
+
+            val spacing = size.width / (dailyStats.size * 2f)
+            val barWidth = spacing
+            dailyStats.forEachIndexed { index, stat ->
+                val barHeight = (stat.totalMinutes / maxMinutes.toFloat()) * size.height
+                val x = spacing + index * spacing * 2
+                drawLine(
+                    color = barColor,
+                    start = Offset(x, size.height),
+                    end = Offset(x, size.height - barHeight),
+                    strokeWidth = barWidth,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            dailyStats.forEach { stat ->
+                Text(
+                    text = formatter.format(stat.date),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = labelColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyStatCard(stat: DailyFocusStat) {
+    val formatter = remember { DateTimeFormatter.ofPattern("MMM d, yyyy") }
+
+    val growth = if (stat.totalMinutes > 0) {
+        (stat.successMinutes / stat.totalMinutes.toFloat()).coerceIn(0.2f, 1f)
+    } else {
+        0.2f
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -109,20 +207,11 @@ private fun HistoryCard(session: FocusSession) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (session.isSuccess) {
-                Tree(growth = 1f, size = 96.dp)
-            } else {
-                WitheredTree(size = 96.dp)
-            }
+            Tree(growth = growth, size = 72.dp)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                val title = if (session.isSuccess) {
-                    "Focused for ${session.durationMinutes} minutes"
-                } else {
-                    "Focused for ${session.actualDurationMinutes} of ${session.durationMinutes} minutes"
-                }
                 Text(
-                    text = title,
+                    text = formatter.format(stat.date),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -130,7 +219,7 @@ private fun HistoryCard(session: FocusSession) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = dateText,
+                    text = "${stat.totalMinutes} minutes • ${stat.sessions} sessions",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )

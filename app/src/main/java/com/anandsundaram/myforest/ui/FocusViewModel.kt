@@ -3,19 +3,24 @@ package com.anandsundaram.myforest.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.anandsundaram.myforest.FocusSession
 import com.anandsundaram.myforest.data.FocusPreferences
+import com.anandsundaram.myforest.data.FocusRepository
+import com.anandsundaram.myforest.data.FocusSessionEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
 
 class FocusViewModel(
-    private val preferences: FocusPreferences
+    private val preferences: FocusPreferences,
+    private val repository: FocusRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -25,6 +30,28 @@ class FocusViewModel(
 
     private val _events = Channel<FocusEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
+
+    init {
+        observeSessions()
+    }
+
+    private fun observeSessions() {
+        viewModelScope.launch {
+            repository.observeSessions().collectLatest { sessions ->
+                val dailyStats = buildDailyStats(sessions)
+                val totalMinutes = sessions.sumOf { it.actualDurationMinutes }
+                val focusedDays = dailyStats.count { it.totalMinutes > 0 }
+
+                _state.update { current ->
+                    current.copy(
+                        dailyStats = dailyStats,
+                        totalMinutesAllTime = totalMinutes,
+                        focusedDays = focusedDays
+                    )
+                }
+            }
+        }
+    }
 
     fun onDurationChange(value: Float) {
         preferences.setDurationMinutes(value)
@@ -73,19 +100,22 @@ class FocusViewModel(
         val actualMinutes = (elapsedMs / 60_000).toInt()
         val sessionMinutes = (current.sessionDurationMs / 60_000).toInt()
 
-        val updatedHistory = current.history + FocusSession(
-            date = Date(),
+        val session = FocusSessionEntity(
+            startTimestamp = System.currentTimeMillis(),
             durationMinutes = sessionMinutes,
             actualDurationMinutes = actualMinutes,
             isSuccess = isSuccess
         )
 
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.insertSession(session)
+        }
+
         _state.value = current.copy(
             isTimerRunning = false,
             remainingTimeMs = 0L,
             growth = 0f,
-            sessionDurationMs = 0L,
-            history = updatedHistory
+            sessionDurationMs = 0L
         )
     }
 
@@ -95,15 +125,41 @@ class FocusViewModel(
         }
     }
 
+    private fun buildDailyStats(sessions: List<FocusSessionEntity>): List<DailyFocusStat> {
+        val zoneId = ZoneId.systemDefault()
+        val byDay = sessions.groupBy { session ->
+            Instant.ofEpochMilli(session.startTimestamp)
+                .atZone(zoneId)
+                .toLocalDate()
+        }
+
+        return byDay.entries
+            .map { (date, daySessions) ->
+                val total = daySessions.sumOf { it.actualDurationMinutes }
+                val successMinutes = daySessions.filter { it.isSuccess }
+                    .sumOf { it.actualDurationMinutes }
+                DailyFocusStat(
+                    date = date,
+                    totalMinutes = total,
+                    sessions = daySessions.size,
+                    successMinutes = successMinutes
+                )
+            }
+            .sortedBy { it.date }
+    }
+
     sealed interface FocusEvent {
         data class StartService(val durationMs: Long) : FocusEvent
         data object StopService : FocusEvent
     }
 
-    class Factory(private val preferences: FocusPreferences) : ViewModelProvider.Factory {
+    class Factory(
+        private val preferences: FocusPreferences,
+        private val repository: FocusRepository
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return FocusViewModel(preferences) as T
+            return FocusViewModel(preferences, repository) as T
         }
     }
 }

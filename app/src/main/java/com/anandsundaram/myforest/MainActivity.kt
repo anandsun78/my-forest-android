@@ -31,6 +31,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.room.Room
+import com.anandsundaram.myforest.data.AppDatabase
+import com.anandsundaram.myforest.data.RoomFocusRepository
 import com.anandsundaram.myforest.data.SharedPrefsFocusPreferences
 import com.anandsundaram.myforest.ui.FocusViewModel
 import com.anandsundaram.myforest.ui.FocusViewModel.FocusEvent
@@ -53,13 +56,19 @@ class MainActivity : ComponentActivity() {
         val preferences = SharedPrefsFocusPreferences(
             getSharedPreferences("MyForestPrefs", Context.MODE_PRIVATE)
         )
+        val database = Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java,
+            "myforest.db"
+        ).build()
+        val repository = RoomFocusRepository(database.focusSessionDao())
 
         enableEdgeToEdge()
         setContent {
             MyForestTheme {
                 val navController = rememberNavController()
                 val viewModel: FocusViewModel = viewModel(
-                    factory = FocusViewModel.Factory(preferences)
+                    factory = FocusViewModel.Factory(preferences, repository)
                 )
                 val state by viewModel.state.collectAsState()
                 val context = LocalContext.current
@@ -160,7 +169,11 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Screen.History.route) {
-                            HistoryScreen(history = state.history)
+                            HistoryScreen(
+                                dailyStats = state.dailyStats,
+                                totalMinutes = state.totalMinutesAllTime,
+                                focusedDays = state.focusedDays
+                            )
                         }
                     }
                 }
