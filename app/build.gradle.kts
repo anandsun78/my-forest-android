@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.anandsundaram.myforest"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.anandsundaram.myforest"
-        minSdk = 26
-        targetSdk = 34
+        minSdk = 24
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 

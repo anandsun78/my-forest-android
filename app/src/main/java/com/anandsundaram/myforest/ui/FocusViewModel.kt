@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.math.roundToInt
 
 class FocusViewModel(
     private val preferences: FocusPreferences,
@@ -54,8 +55,10 @@ class FocusViewModel(
     }
 
     fun onDurationChange(value: Float) {
-        preferences.setDurationMinutes(value)
-        _state.update { current -> current.copy(durationMinutes = value) }
+        val snapped = (value / STEP_MINUTES).roundToInt() * STEP_MINUTES
+        val clamped = snapped.coerceIn(MIN_MINUTES, MAX_MINUTES)
+        preferences.setDurationMinutes(clamped)
+        _state.update { current -> current.copy(durationMinutes = clamped) }
     }
 
     fun onPlantClicked() {
@@ -97,8 +100,12 @@ class FocusViewModel(
     private fun completeSession(isSuccess: Boolean) {
         val current = _state.value
         val elapsedMs = (current.sessionDurationMs - current.remainingTimeMs).coerceAtLeast(0L)
-        val actualMinutes = (elapsedMs / 60_000).toInt()
         val sessionMinutes = (current.sessionDurationMs / 60_000).toInt()
+        val actualMinutes = if (isSuccess) {
+            sessionMinutes
+        } else {
+            (elapsedMs / 60_000).toInt().coerceAtMost(sessionMinutes)
+        }
 
         val session = FocusSessionEntity(
             startTimestamp = System.currentTimeMillis(),
@@ -151,6 +158,12 @@ class FocusViewModel(
     sealed interface FocusEvent {
         data class StartService(val durationMs: Long) : FocusEvent
         data object StopService : FocusEvent
+    }
+
+    private companion object {
+        private const val MIN_MINUTES = 5f
+        private const val MAX_MINUTES = 120f
+        private const val STEP_MINUTES = 5f
     }
 
     class Factory(

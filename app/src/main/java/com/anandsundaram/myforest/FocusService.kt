@@ -21,6 +21,7 @@ class FocusService : Service() {
     private var monitoringTimer: Timer? = null
     private var countdownTimer: CountDownTimer? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var lastNotifiedMinute: Long = -1
 
     companion object {
         const val CHANNEL_ID = "FocusServiceChannel"
@@ -55,12 +56,15 @@ class FocusService : Service() {
 
     private fun startCountdown(duration: Long) {
         countdownTimer?.cancel()
-        countdownTimer = object : CountDownTimer(duration, 1000) {
+        countdownTimer = object : CountDownTimer(duration, 500) {
             override fun onTick(millisUntilFinished: Long) {
                 sendTimerTick(millisUntilFinished)
 
                 val remainingMinutes = (millisUntilFinished / 1000 / 60)
-                updateNotification("Remaining: $remainingMinutes minutes")
+                if (remainingMinutes != lastNotifiedMinute) {
+                    lastNotifiedMinute = remainingMinutes
+                    updateNotification("Remaining: $remainingMinutes minutes")
+                }
             }
 
             override fun onFinish() {
@@ -73,6 +77,7 @@ class FocusService : Service() {
     override fun onDestroy() {
         stopMonitoring()
         countdownTimer?.cancel()
+        lastNotifiedMinute = -1
         super.onDestroy()
     }
 

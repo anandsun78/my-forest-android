@@ -1,6 +1,5 @@
 package com.anandsundaram.myforest
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.anandsundaram.myforest.ui.DailyFocusStat
@@ -148,40 +146,48 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 @Composable
 private fun DailyBarChart(dailyStats: List<DailyFocusStat>) {
     val maxMinutes = dailyStats.maxOfOrNull { it.totalMinutes }?.coerceAtLeast(1) ?: 1
-    val barColor = MaterialTheme.colorScheme.primary
-    val labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+    val colorScheme = MaterialTheme.colorScheme
+    val barColor = colorScheme.primary
+    val labelColor = colorScheme.onSurface.copy(alpha = 0.7f)
     val formatter = remember { DateTimeFormatter.ofPattern("EEE") }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(120.dp)) {
-            if (dailyStats.isEmpty()) return@Canvas
-
-            val spacing = size.width / (dailyStats.size * 2f)
-            val barWidth = spacing
-            dailyStats.forEachIndexed { index, stat ->
-                val barHeight = (stat.totalMinutes / maxMinutes.toFloat()) * size.height
-                val x = spacing + index * spacing * 2
-                drawLine(
-                    color = barColor,
-                    start = Offset(x, size.height),
-                    end = Offset(x, size.height - barHeight),
-                    strokeWidth = barWidth,
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
             dailyStats.forEach { stat ->
-                Text(
-                    text = formatter.format(stat.date),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = labelColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
+                val barHeight = (stat.totalMinutes / maxMinutes.toFloat()) * 90f
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom
+                ) {
+                    Text(
+                        text = formatMinutesShort(stat.totalMinutes),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = labelColor,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .height(barHeight.dp.coerceAtLeast(6.dp))
+                            .fillMaxWidth()
+                            .background(barColor, CardDefaults.shape)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = formatter.format(stat.date),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = labelColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
             }
         }
     }
@@ -207,8 +213,8 @@ private fun DailyStatCard(stat: DailyFocusStat) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Tree(growth = growth, size = 72.dp)
-            Spacer(modifier = Modifier.width(16.dp))
+            Tree(growth = growth, size = 64.dp)
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = formatter.format(stat.date),
@@ -217,13 +223,46 @@ private fun DailyStatCard(stat: DailyFocusStat) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "${stat.totalMinutes} minutes • ${stat.sessions} sessions",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = "${stat.sessions} sessions • ${stat.successMinutes} min success",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = formatMinutesLong(stat.totalMinutes),
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "total",
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
         }
+    }
+}
+
+private fun formatMinutesShort(minutes: Int): String {
+    if (minutes <= 0) return "0m"
+    val hours = minutes / 60
+    val remaining = minutes % 60
+    return if (hours > 0) "${hours}h" else "${remaining}m"
+}
+
+private fun formatMinutesLong(minutes: Int): String {
+    if (minutes <= 0) return "0m"
+    val hours = minutes / 60
+    val remaining = minutes % 60
+    return if (hours > 0 && remaining > 0) {
+        "${hours}h ${remaining}m"
+    } else if (hours > 0) {
+        "${hours}h"
+    } else {
+        "${remaining}m"
     }
 }
