@@ -21,10 +21,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -40,6 +46,8 @@ import com.anandsundaram.myforest.ui.FocusViewModel.FocusEvent
 import com.anandsundaram.myforest.ui.theme.MyForestTheme
 
 sealed class Screen(val route: String, val label: String) {
+    object Onboarding : Screen("onboarding", "Onboarding")
+    object Permissions : Screen("permissions", "Permissions")
     object Focus : Screen("focus", "Focus")
     object History : Screen("history", "History")
 }
@@ -67,11 +75,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyForestTheme {
                 val navController = rememberNavController()
+                var onboardingCompleted by remember { mutableStateOf(preferences.isOnboardingCompleted()) }
+                var hasAllPermissions by remember { mutableStateOf(hasAllRequiredPermissions(this@MainActivity)) }
                 val viewModel: FocusViewModel = viewModel(
                     factory = FocusViewModel.Factory(preferences, repository)
                 )
                 val state by viewModel.state.collectAsState()
                 val context = LocalContext.current
+                val lifecycleOwner = LocalLifecycleOwner.current
 
                 LaunchedEffect(Unit) {
                     viewModel.events.collect { event ->
@@ -118,40 +129,93 @@ class MainActivity : ComponentActivity() {
                     onDispose { context.unregisterReceiver(timerReceiver) }
                 }
 
+                DisposableEffect(lifecycleOwner, onboardingCompleted) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            hasAllPermissions = hasAllRequiredPermissions(context)
+                            if (onboardingCompleted && !hasAllPermissions) {
+                                navController.navigate(Screen.Permissions.route) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
                 Scaffold(
                     bottomBar = {
-                        NavigationBar {
-                            val navBackStackEntry by navController.currentBackStackEntryAsState()
-                            val currentDestination = navBackStackEntry?.destination
-                            navigationItems.forEach { screen ->
-                                NavigationBarItem(
-                                    icon = {
-                                        when (screen) {
-                                            Screen.Focus -> Icon(Icons.Filled.Home, contentDescription = null)
-                                            Screen.History -> Icon(Icons.Filled.DateRange, contentDescription = null)
-                                        }
-                                    },
-                                    label = { Text(screen.label) },
-                                    selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                                    onClick = {
-                                        navController.navigate(screen.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
+                        val navBackStackEntry by navController.currentBackStackEntryAsState()
+                        val currentDestination = navBackStackEntry?.destination
+                        val showBottomBar = currentDestination?.hierarchy?.any {
+                            it.route == Screen.Onboarding.route || it.route == Screen.Permissions.route
+                        } != true
+
+                        if (showBottomBar) {
+                            NavigationBar {
+                                navigationItems.forEach { screen ->
+                                    NavigationBarItem(
+                                        icon = {
+                                            when (screen) {
+                                                Screen.Focus -> Icon(Icons.Filled.Home, contentDescription = null)
+                                                Screen.History -> Icon(Icons.Filled.DateRange, contentDescription = null)
+                                                Screen.Onboarding -> { }
+                                                Screen.Permissions -> { }
                                             }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                        },
+                                        label = { Text(screen.label) },
+                                        selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                                        onClick = {
+                                            navController.navigate(screen.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
                 ) { innerPadding ->
                     NavHost(
                         navController,
-                        startDestination = Screen.Focus.route,
+                        startDestination = when {
+                            !onboardingCompleted -> Screen.Onboarding.route
+                            !hasAllPermissions -> Screen.Permissions.route
+                            else -> Screen.Focus.route
+                        },
                         Modifier.padding(innerPadding)
                     ) {
+                        composable(Screen.Onboarding.route) {
+                            OnboardingScreen(
+                                onGetStarted = {
+                                    preferences.setOnboardingCompleted(true)
+                                    onboardingCompleted = true
+                                    hasAllPermissions = hasAllRequiredPermissions(context)
+                                    navController.navigate(
+                                        if (hasAllPermissions) Screen.Focus.route else Screen.Permissions.route
+                                    ) {
+                                        popUpTo(Screen.Onboarding.route) { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
+                        composable(Screen.Permissions.route) {
+                            PermissionsScreen(
+                                onPermissionsSatisfied = {
+                                    hasAllPermissions = true
+                                    navController.navigate(Screen.Focus.route) {
+                                        popUpTo(Screen.Permissions.route) { inclusive = true }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
                         composable(Screen.Focus.route) {
                             FocusScreen(
                                 durationMinutes = state.durationMinutes,
